@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Cloud, Eye, EyeOff, ArrowRight, Sparkles } from 'lucide-react';
+import { Cloud, Eye, EyeOff, ArrowRight, Sparkles, Database } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 export const LoginPage: React.FC = () => {
-  const { login, register } = useAuth();
+  const { login, register, isLoading: authLoading } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,12 +22,28 @@ export const LoginPage: React.FC = () => {
 
     try {
       if (isLogin) {
-        await login(email, password);
+        const result = await login(email, password);
+        if (!result.success) {
+          toast.error(result.error || 'Erro ao fazer login');
+        } else {
+          toast.success('Login realizado com sucesso!');
+        }
       } else {
-        await register(email, password, name);
+        if (!name.trim()) {
+          toast.error('Nome é obrigatório');
+          setIsLoading(false);
+          return;
+        }
+        const result = await register(email, password, name);
+        if (!result.success) {
+          toast.error(result.error || 'Erro ao criar conta');
+        } else {
+          toast.success('Conta criada com sucesso!');
+        }
       }
     } catch (error) {
       console.error('Auth error:', error);
+      toast.error('Erro inesperado');
     } finally {
       setIsLoading(false);
     }
@@ -37,6 +54,19 @@ export const LoginPage: React.FC = () => {
     { email: 'admin@cloud.io', label: 'Admin', role: 'Gerencia usuários e storage' },
     { email: 'staff@cloud.io', label: 'Staff', role: 'Visualiza usuários' },
   ];
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center animate-pulse">
+            <Cloud className="w-9 h-9 text-primary-foreground" />
+          </div>
+          <p className="text-muted-foreground">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex">
@@ -54,32 +84,39 @@ export const LoginPage: React.FC = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-foreground">CloudStore</h1>
-              <p className="text-muted-foreground">Enterprise Storage System</p>
+              <p className="text-muted-foreground">Local Storage System</p>
             </div>
           </div>
 
           <h2 className="text-4xl lg:text-5xl font-bold text-foreground mb-6 leading-tight">
             Armazenamento<br />
-            <span className="gradient-text">Seguro e Rápido</span>
+            <span className="gradient-text">100% Local</span>
           </h2>
 
           <p className="text-lg text-muted-foreground mb-8 max-w-md">
-            Sistema completo de cloud storage com gerenciamento de usuários, 
-            controle de acesso por níveis e banco de dados isolado por usuário.
+            Sistema completo de cloud storage com banco de dados local IndexedDB. 
+            Sem dependência de servidores externos. Seus dados ficam no navegador.
           </p>
 
           <div className="grid grid-cols-2 gap-4 max-w-md">
             {[
-              { label: 'Hierarquia', value: 'Owner → Admin → Staff → User' },
-              { label: 'Banco Local', value: 'SQLite por usuário' },
-              { label: 'Upload', value: 'Drag & Drop' },
-              { label: 'Segurança', value: 'Criptografia E2E' },
+              { label: 'Banco Local', value: 'IndexedDB', icon: '🗄️' },
+              { label: 'Hierarquia', value: 'Owner → User', icon: '👥' },
+              { label: 'Offline', value: '100% Local', icon: '📴' },
+              { label: 'Segurança', value: 'Dados Isolados', icon: '🔒' },
             ].map((item) => (
               <div key={item.label} className="glass-card rounded-xl p-4">
-                <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
+                <span className="text-xl">{item.icon}</span>
+                <p className="text-xs text-muted-foreground mt-2">{item.label}</p>
                 <p className="text-sm font-medium text-foreground">{item.value}</p>
               </div>
             ))}
+          </div>
+
+          {/* Database Badge */}
+          <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
+            <Database className="w-4 h-4 text-primary" />
+            <span>Powered by IndexedDB - Dados persistidos localmente</span>
           </div>
         </div>
       </div>
@@ -94,7 +131,7 @@ export const LoginPage: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground">CloudStore</h1>
-              <p className="text-xs text-muted-foreground">Enterprise Storage</p>
+              <p className="text-xs text-muted-foreground">Local Storage</p>
             </div>
           </div>
 
@@ -191,7 +228,7 @@ export const LoginPage: React.FC = () => {
               <div className="mt-8 pt-6 border-t border-border">
                 <p className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
                   <Sparkles className="w-3 h-3 text-primary" />
-                  Contas demo para teste:
+                  Contas demo (senha: demo123):
                 </p>
                 <div className="space-y-2">
                   {demoAccounts.map((account) => (

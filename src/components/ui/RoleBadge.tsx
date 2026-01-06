@@ -1,4 +1,4 @@
-import { UserRole } from '@/types';
+import { UserRole } from '@/contexts/AuthContext';
 import { Crown, Shield, Star, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
