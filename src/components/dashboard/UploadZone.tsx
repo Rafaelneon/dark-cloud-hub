@@ -3,6 +3,9 @@ import { Upload, X, FileUp, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/contexts/AuthContext';
+import { useFiles } from '@/hooks/useLocalDatabase';
+import { toast } from 'sonner';
 
 interface UploadingFile {
   id: string;
@@ -10,9 +13,12 @@ interface UploadingFile {
   size: number;
   progress: number;
   status: 'uploading' | 'complete' | 'error';
+  file: File;
 }
 
 export const UploadZone: React.FC = () => {
+  const { user } = useAuth();
+  const { createFile } = useFiles(user?.id);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
@@ -26,42 +32,74 @@ export const UploadZone: React.FC = () => {
     setIsDragging(false);
   }, []);
 
-  const simulateUpload = (file: File) => {
+  const processUpload = async (file: File) => {
+    if (!user) return;
+
     const uploadFile: UploadingFile = {
       id: Date.now().toString() + file.name,
       name: file.name,
       size: file.size,
       progress: 0,
       status: 'uploading',
+      file,
     };
 
     setUploadingFiles((prev) => [...prev, uploadFile]);
 
-    // Simulate upload progress
-    const interval = setInterval(() => {
+    // Simular progresso de upload (em produção, seria o progresso real)
+    const progressInterval = setInterval(() => {
       setUploadingFiles((prev) =>
         prev.map((f) => {
-          if (f.id === uploadFile.id) {
-            const newProgress = Math.min(f.progress + Math.random() * 30, 100);
-            return {
-              ...f,
-              progress: newProgress,
-              status: newProgress >= 100 ? 'complete' : 'uploading',
-            };
+          if (f.id === uploadFile.id && f.progress < 90) {
+            return { ...f, progress: f.progress + Math.random() * 20 };
           }
           return f;
         })
       );
-    }, 300);
+    }, 200);
 
-    setTimeout(() => {
-      clearInterval(interval);
+    try {
+      // Ler arquivo como ArrayBuffer para armazenamento local
+      const arrayBuffer = await file.arrayBuffer();
+
+      // Criar entrada no banco de dados
+      await createFile({
+        name: file.name,
+        type: 'file',
+        mimeType: file.type,
+        size: file.size,
+        parentId: null,
+        userId: user.id,
+        shared: false,
+        starred: false,
+        data: arrayBuffer,
+      });
+
+      clearInterval(progressInterval);
+
+      // Marcar como completo
       setUploadingFiles((prev) =>
         prev.map((f) =>
           f.id === uploadFile.id ? { ...f, progress: 100, status: 'complete' } : f
         )
       );
-    }, 2000 + Math.random() * 2000);
+
+      toast.success(`${file.name} enviado com sucesso!`);
+
+      // Remover da lista após 2 segundos
+      setTimeout(() => {
+        setUploadingFiles((prev) => prev.filter((f) => f.id !== uploadFile.id));
+      }, 2000);
+
+    } catch (error) {
+      clearInterval(progressInterval);
+      setUploadingFiles((prev) =>
+        prev.map((f) =>
+          f.id === uploadFile.id ? { ...f, status: 'error' } : f
+        )
+      );
+      toast.error(`Erro ao enviar ${file.name}`);
+    }
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -69,12 +107,14 @@ export const UploadZone: React.FC = () => {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    files.forEach(simulateUpload);
-  }, []);
+    files.forEach(processUpload);
+  }, [user]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    files.forEach(simulateUpload);
+    files.forEach(processUpload);
+    // Reset input
+    e.target.value = '';
   };
 
   const removeUploadingFile = (id: string) => {
@@ -121,7 +161,7 @@ export const UploadZone: React.FC = () => {
             {isDragging ? 'Solte os arquivos aqui' : 'Arraste arquivos ou clique para fazer upload'}
           </p>
           <p className="text-sm text-muted-foreground">
-            Suporta múltiplos arquivos de até 100MB cada
+            Arquivos são armazenados localmente no navegador (IndexedDB)
           </p>
         </label>
       </div>
@@ -154,6 +194,15 @@ export const UploadZone: React.FC = () => {
               
               {file.status === 'complete' ? (
                 <CheckCircle className="w-5 h-5 text-success shrink-0" />
+              ) : file.status === 'error' ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-6 h-6 shrink-0 text-destructive"
+                  onClick={() => removeUploadingFile(file.id)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
               ) : (
                 <Button
                   variant="ghost"

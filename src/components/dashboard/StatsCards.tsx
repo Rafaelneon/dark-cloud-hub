@@ -1,5 +1,6 @@
 import { HardDrive, FileText, Folder, Share2, TrendingUp } from 'lucide-react';
-import { StorageStats } from '@/types';
+import { StorageStats } from './Dashboard';
+
 import { cn } from '@/lib/utils';
 
 interface StatsCardsProps {

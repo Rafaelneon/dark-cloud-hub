@@ -1,90 +1,162 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { User, UserRole } from '@/types';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { db, DBUser } from '@/lib/database';
+
+export type UserRole = 'owner' | 'admin' | 'staff' | 'user';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  role: UserRole;
+  storageUsed: number;
+  storageLimit: number;
+  createdAt: Date;
+}
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo users for showcase
-const demoUsers: Record<string, User> = {
-  'owner@cloud.io': {
-    id: '1',
-    email: 'owner@cloud.io',
-    name: 'Carlos Owner',
-    role: 'owner',
-    storageUsed: 45.2 * 1024 * 1024 * 1024,
-    storageLimit: 1024 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-01-01'),
-  },
-  'admin@cloud.io': {
-    id: '2',
-    email: 'admin@cloud.io',
-    name: 'Ana Admin',
-    role: 'admin',
-    storageUsed: 28.7 * 1024 * 1024 * 1024,
-    storageLimit: 500 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-02-15'),
-  },
-  'staff@cloud.io': {
-    id: '3',
-    email: 'staff@cloud.io',
-    name: 'Pedro Staff',
-    role: 'staff',
-    storageUsed: 12.4 * 1024 * 1024 * 1024,
-    storageLimit: 100 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-03-20'),
-  },
-};
+const dbUserToUser = (dbUser: DBUser): User => ({
+  id: dbUser.id,
+  email: dbUser.email,
+  name: dbUser.name,
+  role: dbUser.role,
+  storageUsed: dbUser.storageUsed,
+  storageLimit: dbUser.storageLimit,
+  createdAt: new Date(dbUser.createdAt),
+});
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = async (email: string, password: string) => {
-    // Demo login - in production, this would call an API
-    const demoUser = demoUsers[email.toLowerCase()];
-    if (demoUser) {
-      setUser(demoUser);
-      return;
+  // Verificar sessão ao carregar
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        await db.init();
+        const session = await db.getCurrentSession();
+        
+        if (session) {
+          const dbUser = await db.getUserById(session.userId);
+          if (dbUser) {
+            setUser(dbUserToUser(dbUser));
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao verificar sessão:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkSession();
+  }, []);
+
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await db.init();
+      const dbUser = await db.getUserByEmail(email.toLowerCase());
+
+      if (!dbUser) {
+        return { success: false, error: 'Usuário não encontrado' };
+      }
+
+      if (dbUser.password !== password) {
+        return { success: false, error: 'Senha incorreta' };
+      }
+
+      // Criar sessão
+      await db.createSession(dbUser.id);
+      setUser(dbUserToUser(dbUser));
+
+      return { success: true };
+    } catch (error) {
+      console.error('Erro no login:', error);
+      return { success: false, error: 'Erro ao fazer login' };
     }
-    
-    // Create new user account
-    const newUser: User = {
-      id: Date.now().toString(),
-      email,
-      name: email.split('@')[0],
-      role: 'user',
-      storageUsed: 0,
-      storageLimit: 15 * 1024 * 1024 * 1024, // 15GB
-      createdAt: new Date(),
-    };
-    setUser(newUser);
   };
 
-  const register = async (email: string, password: string, name: string) => {
-    const newUser: User = {
-      id: Date.now().toString(),
-      email,
-      name,
-      role: 'user',
-      storageUsed: 0,
-      storageLimit: 15 * 1024 * 1024 * 1024,
-      createdAt: new Date(),
-    };
-    setUser(newUser);
+  const register = async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await db.init();
+
+      // Verificar se email já existe
+      const existingUser = await db.getUserByEmail(email.toLowerCase());
+      if (existingUser) {
+        return { success: false, error: 'Email já cadastrado' };
+      }
+
+      // Criar novo usuário
+      const newUser: DBUser = {
+        id: `user-${Date.now()}`,
+        email: email.toLowerCase(),
+        password,
+        name,
+        role: 'user',
+        storageUsed: 0,
+        storageLimit: 15 * 1024 * 1024 * 1024, // 15GB
+        createdAt: new Date().toISOString(),
+      };
+
+      await db.createUser(newUser);
+      await db.createSession(newUser.id);
+      setUser(dbUserToUser(newUser));
+
+      return { success: true };
+    } catch (error) {
+      console.error('Erro no registro:', error);
+      return { success: false, error: 'Erro ao criar conta' };
+    }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      const session = await db.getCurrentSession();
+      if (session) {
+        await db.deleteSession(session.id);
+      }
+    } catch (error) {
+      console.error('Erro no logout:', error);
+    }
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    if (!user) return;
+
+    try {
+      const dbUser = await db.getUserById(user.id);
+      if (dbUser) {
+        setUser(dbUserToUser(dbUser));
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar usuário:', error);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout, register }}>
+    <AuthContext.Provider 
+      value={{ 
+        user, 
+        isAuthenticated: !!user, 
+        isLoading, 
+        login, 
+        logout, 
+        register,
+        refreshUser 
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

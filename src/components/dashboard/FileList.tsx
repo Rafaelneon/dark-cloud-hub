@@ -13,7 +13,7 @@ import {
   Music,
   Archive
 } from 'lucide-react';
-import { CloudFile } from '@/types';
+import { DBFile } from '@/lib/database';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,14 +26,14 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 
 interface FileListProps {
-  files: CloudFile[];
-  onFileSelect?: (file: CloudFile) => void;
-  onDelete?: (file: CloudFile) => void;
-  onStar?: (file: CloudFile) => void;
-  onShare?: (file: CloudFile) => void;
+  files: DBFile[];
+  onFileSelect?: (file: DBFile) => void;
+  onDelete?: (file: DBFile) => void;
+  onStar?: (file: DBFile) => void;
+  onShare?: (file: DBFile) => void;
 }
 
-const getFileIcon = (file: CloudFile) => {
+const getFileIcon = (file: DBFile) => {
   if (file.type === 'folder') return Folder;
   
   const mimeType = file.mimeType || '';
@@ -45,7 +45,7 @@ const getFileIcon = (file: CloudFile) => {
   return File;
 };
 
-const getFileIconColor = (file: CloudFile) => {
+const getFileIconColor = (file: DBFile) => {
   if (file.type === 'folder') return 'text-warning';
   
   const mimeType = file.mimeType || '';
@@ -64,12 +64,12 @@ const formatBytes = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-const formatDate = (date: Date) => {
+const formatDate = (dateString: string) => {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(date);
+  }).format(new Date(dateString));
 };
 
 export const FileList: React.FC<FileListProps> = ({ 
@@ -172,7 +172,7 @@ export const FileList: React.FC<FileListProps> = ({
                   </DropdownMenuItem>
                   <DropdownMenuItem className="gap-2" onClick={() => onShare?.(file)}>
                     <Share2 className="w-4 h-4" />
-                    Compartilhar
+                    {file.shared ? 'Remover compartilhamento' : 'Compartilhar'}
                   </DropdownMenuItem>
                   <DropdownMenuItem className="gap-2">
                     <Download className="w-4 h-4" />

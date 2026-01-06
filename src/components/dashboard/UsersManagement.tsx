@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Search, MoreVertical, UserPlus, Shield, Crown, Star, User as UserIcon, Ban, Trash2 } from 'lucide-react';
-import { User, UserRole } from '@/types';
 import { RoleBadge } from '@/components/ui/RoleBadge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -30,63 +29,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAuth } from '@/contexts/AuthContext';
-
-const mockUsers: User[] = [
-  {
-    id: '1',
-    email: 'owner@cloud.io',
-    name: 'Carlos Owner',
-    role: 'owner',
-    storageUsed: 45.2 * 1024 * 1024 * 1024,
-    storageLimit: 1024 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-01-01'),
-  },
-  {
-    id: '2',
-    email: 'admin@cloud.io',
-    name: 'Ana Admin',
-    role: 'admin',
-    storageUsed: 28.7 * 1024 * 1024 * 1024,
-    storageLimit: 500 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-02-15'),
-  },
-  {
-    id: '3',
-    email: 'staff@cloud.io',
-    name: 'Pedro Staff',
-    role: 'staff',
-    storageUsed: 12.4 * 1024 * 1024 * 1024,
-    storageLimit: 100 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-03-20'),
-  },
-  {
-    id: '4',
-    email: 'user1@email.com',
-    name: 'Maria Silva',
-    role: 'user',
-    storageUsed: 5.2 * 1024 * 1024 * 1024,
-    storageLimit: 15 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-04-10'),
-  },
-  {
-    id: '5',
-    email: 'user2@email.com',
-    name: 'João Santos',
-    role: 'user',
-    storageUsed: 8.9 * 1024 * 1024 * 1024,
-    storageLimit: 15 * 1024 * 1024 * 1024,
-    createdAt: new Date('2024-05-05'),
-  },
-];
+import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useUsers } from '@/hooks/useLocalDatabase';
+import { DBUser } from '@/lib/database';
+import { toast } from 'sonner';
 
 const roleHierarchy = { user: 0, staff: 1, admin: 2, owner: 3 };
 
 export const UsersManagement: React.FC = () => {
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const { users, createUser, updateUser, deleteUser, changeUserRole } = useUsers();
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    email: '',
+    name: '',
+    password: '',
+    role: 'user' as UserRole,
+    storageLimit: 15,
+  });
 
   if (!currentUser) return null;
 
@@ -106,14 +67,58 @@ export const UsersManagement: React.FC = () => {
       u.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const canEditUser = (targetUser: User) => {
+  const canEditUser = (targetUser: DBUser) => {
     return currentUserLevel > roleHierarchy[targetUser.role];
   };
 
-  const changeUserRole = (userId: string, newRole: UserRole) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
-    );
+  const handleCreateUser = async () => {
+    if (!newUserData.email || !newUserData.name || !newUserData.password) {
+      toast.error('Preencha todos os campos');
+      return;
+    }
+
+    try {
+      await createUser({
+        email: newUserData.email.toLowerCase(),
+        name: newUserData.name,
+        password: newUserData.password,
+        role: newUserData.role,
+        storageUsed: 0,
+        storageLimit: newUserData.storageLimit * 1024 * 1024 * 1024,
+      });
+
+      toast.success('Usuário criado com sucesso!');
+      setIsAddDialogOpen(false);
+      setNewUserData({
+        email: '',
+        name: '',
+        password: '',
+        role: 'user',
+        storageLimit: 15,
+      });
+    } catch (error) {
+      toast.error('Erro ao criar usuário');
+    }
+  };
+
+  const handleChangeRole = async (userId: string, newRole: UserRole) => {
+    try {
+      await changeUserRole(userId, newRole);
+      toast.success('Função alterada com sucesso!');
+    } catch (error) {
+      toast.error('Erro ao alterar função');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (confirm('Tem certeza que deseja excluir este usuário?')) {
+      try {
+        await deleteUser(userId);
+        toast.success('Usuário excluído com sucesso!');
+      } catch (error) {
+        toast.error('Erro ao excluir usuário');
+      }
+    }
   };
 
   const getRoleIcon = (role: UserRole) => {
@@ -154,15 +159,38 @@ export const UsersManagement: React.FC = () => {
               <div className="space-y-4 pt-4">
                 <div className="space-y-2">
                   <Label className="text-foreground">Email</Label>
-                  <Input placeholder="email@exemplo.com" className="bg-secondary border-border" />
+                  <Input 
+                    placeholder="email@exemplo.com" 
+                    className="bg-secondary border-border"
+                    value={newUserData.email}
+                    onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-foreground">Nome</Label>
-                  <Input placeholder="Nome completo" className="bg-secondary border-border" />
+                  <Input 
+                    placeholder="Nome completo" 
+                    className="bg-secondary border-border"
+                    value={newUserData.name}
+                    onChange={(e) => setNewUserData({ ...newUserData, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-foreground">Senha</Label>
+                  <Input 
+                    type="password"
+                    placeholder="Senha inicial" 
+                    className="bg-secondary border-border"
+                    value={newUserData.password}
+                    onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-foreground">Função</Label>
-                  <Select>
+                  <Select 
+                    value={newUserData.role}
+                    onValueChange={(value: UserRole) => setNewUserData({ ...newUserData, role: value })}
+                  >
                     <SelectTrigger className="bg-secondary border-border">
                       <SelectValue placeholder="Selecione uma função" />
                     </SelectTrigger>
@@ -174,8 +202,11 @@ export const UsersManagement: React.FC = () => {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-foreground">Limite de Armazenamento</Label>
-                  <Select>
+                  <Label className="text-foreground">Limite de Armazenamento (GB)</Label>
+                  <Select 
+                    value={newUserData.storageLimit.toString()}
+                    onValueChange={(value) => setNewUserData({ ...newUserData, storageLimit: parseInt(value) })}
+                  >
                     <SelectTrigger className="bg-secondary border-border">
                       <SelectValue placeholder="Selecione um limite" />
                     </SelectTrigger>
@@ -191,7 +222,7 @@ export const UsersManagement: React.FC = () => {
                   <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                     Cancelar
                   </Button>
-                  <Button onClick={() => setIsAddDialogOpen(false)}>
+                  <Button onClick={handleCreateUser}>
                     Adicionar
                   </Button>
                 </div>
@@ -254,7 +285,7 @@ export const UsersManagement: React.FC = () => {
 
                 <div className="col-span-2 hidden lg:block">
                   <span className="text-sm text-muted-foreground">
-                    {new Intl.DateTimeFormat('pt-BR').format(targetUser.createdAt)}
+                    {new Intl.DateTimeFormat('pt-BR').format(new Date(targetUser.createdAt))}
                   </span>
                 </div>
 
@@ -275,7 +306,7 @@ export const UsersManagement: React.FC = () => {
                           <DropdownMenuSubContent className="bg-popover border-border">
                             <DropdownMenuItem
                               className="gap-2"
-                              onClick={() => changeUserRole(targetUser.id, 'user')}
+                              onClick={() => handleChangeRole(targetUser.id, 'user')}
                             >
                               <UserIcon className="w-4 h-4" />
                               Usuário
@@ -283,7 +314,7 @@ export const UsersManagement: React.FC = () => {
                             {currentUserLevel >= 2 && (
                               <DropdownMenuItem
                                 className="gap-2"
-                                onClick={() => changeUserRole(targetUser.id, 'staff')}
+                                onClick={() => handleChangeRole(targetUser.id, 'staff')}
                               >
                                 <Star className="w-4 h-4" />
                                 Staff
@@ -292,7 +323,7 @@ export const UsersManagement: React.FC = () => {
                             {currentUserLevel >= 3 && (
                               <DropdownMenuItem
                                 className="gap-2"
-                                onClick={() => changeUserRole(targetUser.id, 'admin')}
+                                onClick={() => handleChangeRole(targetUser.id, 'admin')}
                               >
                                 <Shield className="w-4 h-4" />
                                 Admin
@@ -305,7 +336,10 @@ export const UsersManagement: React.FC = () => {
                           <Ban className="w-4 h-4" />
                           Suspender
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="gap-2 text-destructive">
+                        <DropdownMenuItem 
+                          className="gap-2 text-destructive"
+                          onClick={() => handleDeleteUser(targetUser.id)}
+                        >
                           <Trash2 className="w-4 h-4" />
                           Excluir
                         </DropdownMenuItem>
@@ -316,6 +350,13 @@ export const UsersManagement: React.FC = () => {
               </div>
             );
           })}
+
+          {filteredUsers.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <UserIcon className="w-16 h-16 mb-4 opacity-30" />
+              <p className="text-lg font-medium">Nenhum usuário encontrado</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

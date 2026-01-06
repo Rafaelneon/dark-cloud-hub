@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Plus, FolderPlus, LayoutGrid, List } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Plus, FolderPlus, LayoutGrid, List, Database } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { StatsCards } from './StatsCards';
@@ -8,116 +8,62 @@ import { UploadZone } from './UploadZone';
 import { UsersManagement } from './UsersManagement';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { CloudFile, StorageStats } from '@/types';
+export interface StorageStats {
+  totalStorage: number;
+  usedStorage: number;
+  totalFiles: number;
+  totalFolders: number;
+  sharedFiles: number;
+}
 import { cn } from '@/lib/utils';
-
-// Mock data
-const mockFiles: CloudFile[] = [
-  {
-    id: '1',
-    name: 'Projetos',
-    type: 'folder',
-    size: 0,
-    parentId: null,
-    userId: '1',
-    shared: true,
-    starred: true,
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-06-01'),
-  },
-  {
-    id: '2',
-    name: 'Documentos',
-    type: 'folder',
-    size: 0,
-    parentId: null,
-    userId: '1',
-    shared: false,
-    starred: false,
-    createdAt: new Date('2024-02-10'),
-    updatedAt: new Date('2024-05-20'),
-  },
-  {
-    id: '3',
-    name: 'Relatório Anual 2024.pdf',
-    type: 'file',
-    mimeType: 'application/pdf',
-    size: 15.7 * 1024 * 1024,
-    parentId: null,
-    userId: '1',
-    shared: true,
-    starred: true,
-    createdAt: new Date('2024-03-05'),
-    updatedAt: new Date('2024-03-05'),
-  },
-  {
-    id: '4',
-    name: 'Apresentação Q4.pptx',
-    type: 'file',
-    mimeType: 'application/vnd.ms-powerpoint',
-    size: 8.2 * 1024 * 1024,
-    parentId: null,
-    userId: '1',
-    shared: false,
-    starred: false,
-    createdAt: new Date('2024-04-12'),
-    updatedAt: new Date('2024-04-15'),
-  },
-  {
-    id: '5',
-    name: 'banner-hero.png',
-    type: 'file',
-    mimeType: 'image/png',
-    size: 2.4 * 1024 * 1024,
-    parentId: null,
-    userId: '1',
-    shared: false,
-    starred: false,
-    createdAt: new Date('2024-05-01'),
-    updatedAt: new Date('2024-05-01'),
-  },
-  {
-    id: '6',
-    name: 'video-tutorial.mp4',
-    type: 'file',
-    mimeType: 'video/mp4',
-    size: 156.8 * 1024 * 1024,
-    parentId: null,
-    userId: '1',
-    shared: true,
-    starred: false,
-    createdAt: new Date('2024-05-18'),
-    updatedAt: new Date('2024-05-18'),
-  },
-  {
-    id: '7',
-    name: 'backup-database.zip',
-    type: 'file',
-    mimeType: 'application/zip',
-    size: 45.3 * 1024 * 1024,
-    parentId: null,
-    userId: '1',
-    shared: false,
-    starred: true,
-    createdAt: new Date('2024-06-02'),
-    updatedAt: new Date('2024-06-02'),
-  },
-];
-
-const mockStats: StorageStats = {
-  totalStorage: 100 * 1024 * 1024 * 1024,
-  usedStorage: 45.2 * 1024 * 1024 * 1024,
-  totalFiles: 247,
-  totalFolders: 32,
-  sharedFiles: 18,
-};
+import { useFiles, useUserStats, useUsers } from '@/hooks/useLocalDatabase';
+import { DBFile } from '@/lib/database';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [activeSection, setActiveSection] = useState('files');
-  const [files, setFiles] = useState<CloudFile[]>(mockFiles);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isNewFolderDialogOpen, setIsNewFolderDialogOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [displayFiles, setDisplayFiles] = useState<DBFile[]>([]);
+
+  const { files, loading: filesLoading, createFile, updateFile, deleteFile, toggleStar, getStarredFiles, getSharedFiles } = useFiles(user?.id);
+  const { stats } = useUserStats(user?.id);
+  const { users } = useUsers();
+
+  // Carregar arquivos baseado na seção ativa
+  useEffect(() => {
+    const loadSectionFiles = async () => {
+      if (!user) return;
+
+      let sectionFiles: DBFile[] = [];
+
+      switch (activeSection) {
+        case 'starred':
+          sectionFiles = await getStarredFiles();
+          break;
+        case 'shared':
+          sectionFiles = await getSharedFiles();
+          break;
+        default:
+          sectionFiles = files;
+      }
+
+      setDisplayFiles(sectionFiles);
+    };
+
+    loadSectionFiles();
+  }, [activeSection, files, user]);
 
   if (!user) return null;
 
@@ -132,27 +78,60 @@ export const Dashboard: React.FC = () => {
     settings: 'Configurações',
   };
 
-  const filteredFiles = files.filter((file) => {
-    const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    switch (activeSection) {
-      case 'starred':
-        return matchesSearch && file.starred;
-      case 'shared':
-        return matchesSearch && file.shared;
-      default:
-        return matchesSearch;
-    }
-  });
+  const filteredFiles = displayFiles.filter((file) =>
+    file.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  const handleStar = (file: CloudFile) => {
-    setFiles((prev) =>
-      prev.map((f) => (f.id === file.id ? { ...f, starred: !f.starred } : f))
-    );
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      toast.error('Digite um nome para a pasta');
+      return;
+    }
+
+    try {
+      await createFile({
+        name: newFolderName,
+        type: 'folder',
+        size: 0,
+        parentId: null,
+        userId: user.id,
+        shared: false,
+        starred: false,
+      });
+
+      toast.success('Pasta criada com sucesso!');
+      setNewFolderName('');
+      setIsNewFolderDialogOpen(false);
+    } catch (error) {
+      toast.error('Erro ao criar pasta');
+    }
   };
 
-  const handleDelete = (file: CloudFile) => {
-    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+  const handleStar = async (file: DBFile) => {
+    await toggleStar(file);
+    toast.success(file.starred ? 'Removido dos favoritos' : 'Adicionado aos favoritos');
+  };
+
+  const handleDelete = async (file: DBFile) => {
+    if (confirm(`Tem certeza que deseja excluir "${file.name}"?`)) {
+      await deleteFile(file.id);
+      toast.success('Arquivo excluído com sucesso!');
+    }
+  };
+
+  const handleShare = async (file: DBFile) => {
+    const updatedFile = { ...file, shared: !file.shared, updatedAt: new Date().toISOString() };
+    await updateFile(updatedFile);
+    toast.success(file.shared ? 'Compartilhamento removido' : 'Arquivo compartilhado!');
+  };
+
+  // Calcular estatísticas reais
+  const storageStats: StorageStats = {
+    totalStorage: user.storageLimit,
+    usedStorage: user.storageUsed,
+    totalFiles: stats.totalFiles,
+    totalFolders: stats.totalFolders,
+    sharedFiles: stats.sharedFiles,
   };
 
   const renderContent = () => {
@@ -161,27 +140,50 @@ export const Dashboard: React.FC = () => {
         return <UsersManagement />;
       case 'databases':
         return (
-          <div className="glass-card rounded-xl p-8 text-center animate-fade-in">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/20 flex items-center justify-center">
-              <span className="text-3xl">🗄️</span>
+          <div className="glass-card rounded-xl p-8 animate-fade-in">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center">
+                <Database className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Banco de Dados Local</h3>
+                <p className="text-muted-foreground">IndexedDB - Armazenamento 100% local</p>
+              </div>
             </div>
-            <h3 className="text-xl font-bold text-foreground mb-2">Bancos de Dados SQLite</h3>
-            <p className="text-muted-foreground mb-4">
-              Cada usuário possui um banco de dados SQLite isolado para armazenamento seguro de metadados.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div className="p-4 rounded-lg bg-secondary/50">
-                <p className="text-2xl font-bold text-primary">5</p>
-                <p className="text-sm text-muted-foreground">Usuários ativos</p>
+                <p className="text-2xl font-bold text-primary">{users.length}</p>
+                <p className="text-sm text-muted-foreground">Usuários cadastrados</p>
               </div>
               <div className="p-4 rounded-lg bg-secondary/50">
-                <p className="text-2xl font-bold text-success">12.4 MB</p>
-                <p className="text-sm text-muted-foreground">Total de DBs</p>
+                <p className="text-2xl font-bold text-success">{stats.totalFiles + stats.totalFolders}</p>
+                <p className="text-sm text-muted-foreground">Total de itens</p>
               </div>
               <div className="p-4 rounded-lg bg-secondary/50">
                 <p className="text-2xl font-bold text-warning">100%</p>
-                <p className="text-sm text-muted-foreground">Integridade</p>
+                <p className="text-sm text-muted-foreground">Offline/Local</p>
               </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-foreground">Tabelas do Sistema:</h4>
+              {['users', 'files', 'sessions', 'settings'].map((table) => (
+                <div key={table} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-success" />
+                    <span className="font-mono text-sm text-foreground">{table}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">IndexedDB</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <p className="text-sm text-foreground">
+                <strong>💡 Dados 100% locais:</strong> Todos os dados são armazenados no IndexedDB do navegador. 
+                Não há dependência de servidores externos. Os dados persistem entre sessões.
+              </p>
             </div>
           </div>
         );
@@ -190,27 +192,31 @@ export const Dashboard: React.FC = () => {
           <div className="glass-card rounded-xl p-8 animate-fade-in">
             <h3 className="text-xl font-bold text-foreground mb-6">Visão Geral do Armazenamento</h3>
             <div className="space-y-4">
-              {[
-                { label: 'Carlos Owner', used: 45.2, total: 1024, color: 'from-primary to-accent' },
-                { label: 'Ana Admin', used: 28.7, total: 500, color: 'from-accent to-pink-500' },
-                { label: 'Pedro Staff', used: 12.4, total: 100, color: 'from-success to-emerald-500' },
-                { label: 'Outros usuários', used: 14.1, total: 30, color: 'from-warning to-orange-500' },
-              ].map((item) => (
-                <div key={item.label} className="p-4 rounded-lg bg-secondary/30">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-foreground">{item.label}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {item.used} GB / {item.total} GB
-                    </span>
+              {users.map((u) => {
+                const usagePercent = (u.storageUsed / u.storageLimit) * 100;
+                const colors = {
+                  owner: 'from-warning to-orange-500',
+                  admin: 'from-accent to-pink-500',
+                  staff: 'from-primary to-cyan-500',
+                  user: 'from-success to-emerald-500',
+                };
+                return (
+                  <div key={u.id} className="p-4 rounded-lg bg-secondary/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-foreground">{u.name}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {(u.storageUsed / (1024 * 1024 * 1024)).toFixed(1)} GB / {(u.storageLimit / (1024 * 1024 * 1024)).toFixed(0)} GB
+                      </span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={cn('h-full bg-gradient-to-r', colors[u.role])}
+                        style={{ width: `${Math.min(usagePercent, 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn('h-full bg-gradient-to-r', item.color)}
-                      style={{ width: `${(item.used / item.total) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -221,21 +227,55 @@ export const Dashboard: React.FC = () => {
               <span className="text-3xl">⚙️</span>
             </div>
             <h3 className="text-xl font-bold text-foreground mb-2">Configurações do Sistema</h3>
+            <p className="text-muted-foreground mb-6">
+              Área exclusiva para o Owner. Configure políticas de armazenamento e backups.
+            </p>
+            
+            <div className="space-y-4 text-left max-w-md mx-auto">
+              <div className="p-4 rounded-lg bg-secondary/50">
+                <h4 className="font-medium text-foreground mb-2">Exportar Dados</h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Faça backup de todos os dados do sistema em formato JSON.
+                </p>
+                <Button variant="outline" className="w-full">
+                  Exportar Database
+                </Button>
+              </div>
+              
+              <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+                <h4 className="font-medium text-destructive mb-2">Limpar Dados</h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Remove todos os dados do sistema. Esta ação não pode ser desfeita.
+                </p>
+                <Button variant="destructive" className="w-full">
+                  Limpar Tudo
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      case 'trash':
+        return (
+          <div className="glass-card rounded-xl p-8 text-center animate-fade-in">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-destructive/20 flex items-center justify-center">
+              <span className="text-3xl">🗑️</span>
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Lixeira</h3>
             <p className="text-muted-foreground">
-              Área exclusiva para o Owner. Configure políticas de armazenamento, 
-              backups automáticos e integrações.
+              Itens excluídos aparecem aqui. Funcionalidade em desenvolvimento.
             </p>
           </div>
         );
       default:
         return (
           <div className="space-y-6">
-            <StatsCards stats={mockStats} />
+            <StatsCards stats={storageStats} />
             <UploadZone />
             <FileList
               files={filteredFiles}
               onStar={handleStar}
               onDelete={handleDelete}
+              onShare={handleShare}
             />
           </div>
         );
@@ -286,10 +326,39 @@ export const Dashboard: React.FC = () => {
                     </Button>
                   </div>
 
-                  <Button variant="outline" className="gap-2 border-border">
-                    <FolderPlus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Nova Pasta</span>
-                  </Button>
+                  <Dialog open={isNewFolderDialogOpen} onOpenChange={setIsNewFolderDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="gap-2 border-border">
+                        <FolderPlus className="w-4 h-4" />
+                        <span className="hidden sm:inline">Nova Pasta</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-card border-border">
+                      <DialogHeader>
+                        <DialogTitle className="text-foreground">Criar Nova Pasta</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                          <Label className="text-foreground">Nome da Pasta</Label>
+                          <Input
+                            placeholder="Minha Pasta"
+                            className="bg-secondary border-border"
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3">
+                          <Button variant="outline" onClick={() => setIsNewFolderDialogOpen(false)}>
+                            Cancelar
+                          </Button>
+                          <Button onClick={handleCreateFolder}>
+                            Criar
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
                   <Button className="gap-2 bg-primary hover:bg-primary/90">
                     <Plus className="w-4 h-4" />
@@ -303,7 +372,13 @@ export const Dashboard: React.FC = () => {
 
         {/* Content */}
         <div className="p-6">
-          {renderContent()}
+          {filesLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            renderContent()
+          )}
         </div>
       </main>
     </div>
